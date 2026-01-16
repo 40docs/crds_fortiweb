@@ -365,9 +365,10 @@ class FortiWebClient:
             key_pem: PEM-encoded private key
         """
         try:
+            # Must unset Content-Type so httpx can set multipart boundary
             response = self.client.post(
                 "/system/certificate.local.import_certificate",
-                headers={"Accept": "application/json, text/plain, */*"},
+                headers={"Accept": "application/json, text/plain, */*", "Content-Type": None},
                 files={
                     "certificateFile": (f"{name}.crt", cert_pem.encode(), "application/x-pem-file"),
                     "keyFile": (f"{name}.key", key_pem.encode(), "application/x-pem-file"),
