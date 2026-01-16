@@ -1,13 +1,13 @@
-apiVersion: fortiweb.40docs.com/v1
+apiVersion: fortiwebingress.io/v1
 kind: FortiWebIngress
 metadata:
   name: gateway
-  namespace: fortiweb-system
+  namespace: fortiweb-controller
 spec:
   fortiweb:
     address: "10.0.10.100:8443"
     credentialsSecret: fortiweb-credentials
-    # credentialsSecretNamespace: fortiweb-system  # defaults to CR namespace
+    # credentialsSecretNamespace: fortiweb-controller  # defaults to CR namespace
 
   virtualServer:
     name: gateway
@@ -24,16 +24,16 @@ spec:
     httpToHttps: "disable"
 
   routes:
-    - host: shop.40docs.com
+    - host: app1.example.com
       path: /
       backend:
         serviceName: frontend
-        serviceNamespace: online-boutique
+        serviceNamespace: app1
         port: 80
 
-    - host: xperts.40docs.com
+    - host: app2.example.com
       path: /
       backend:
-        serviceName: xperts
-        serviceNamespace: xperts
+        serviceName: backend
+        serviceNamespace: app2
         port: 8080

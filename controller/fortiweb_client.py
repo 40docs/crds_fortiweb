@@ -434,7 +434,7 @@ class FortiWebClient:
 
         Args:
             sni_policy_name: Name of the SNI policy
-            domain: Domain/hostname pattern (e.g., "xperts.40docs.com")
+            domain: Domain/hostname pattern (e.g., "app.example.com")
             certificate: Name of the local certificate to use
         """
         return self._request(

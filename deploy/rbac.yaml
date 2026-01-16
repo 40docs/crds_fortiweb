@@ -10,10 +10,10 @@ metadata:
   name: fortiweb-controller
 rules:
   # Watch FortiWebIngress CRDs
-  - apiGroups: ["fortiweb.40docs.com"]
+  - apiGroups: ["fortiwebingress.io"]
     resources: ["fortiwebingresses"]
     verbs: ["get", "list", "watch", "patch"]
-  - apiGroups: ["fortiweb.40docs.com"]
+  - apiGroups: ["fortiwebingress.io"]
     resources: ["fortiwebingresses/status"]
     verbs: ["get", "patch", "update"]
 

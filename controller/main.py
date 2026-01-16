@@ -282,8 +282,8 @@ def delete_dns_endpoint(name: str, namespace: str) -> None:
             logger.warning(f"Failed to delete DNSEndpoint {name}-dns: {e}")
 
 
-@kopf.on.create("fortiweb.40docs.com", "v1", "fortiwebingresses")
-@kopf.on.update("fortiweb.40docs.com", "v1", "fortiwebingresses")
+@kopf.on.create("fortiwebingress.io", "v1", "fortiwebingresses")
+@kopf.on.update("fortiwebingress.io", "v1", "fortiwebingresses")
 async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, meta, **kwargs):
     """
     Reconcile FortiWebIngress resource.
@@ -558,7 +558,7 @@ async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, meta,
             if hostnames:
                 # Create owner reference for garbage collection
                 owner_ref = {
-                    "apiVersion": "fortiweb.40docs.com/v1",
+                    "apiVersion": "fortiwebingress.io/v1",
                     "kind": "FortiWebIngress",
                     "name": name,
                     "uid": meta.get("uid"),
@@ -602,7 +602,7 @@ async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, meta,
         client.close()
 
 
-@kopf.on.delete("fortiweb.40docs.com", "v1", "fortiwebingresses")
+@kopf.on.delete("fortiwebingress.io", "v1", "fortiwebingresses")
 async def delete_fortiweb_ingress(spec, name, namespace, status, **kwargs):
     """
     Clean up FortiWeb resources when CR is deleted.
