@@ -344,6 +344,107 @@ class FortiWebClient:
         )
 
     # =========================================================================
+    # Certificate Management
+    # =========================================================================
+
+    def upload_local_certificate(
+        self,
+        name: str,
+        cert_pem: str,
+        key_pem: str,
+    ) -> dict:
+        """
+        Upload a local certificate to FortiWeb.
+
+        Args:
+            name: Certificate name in FortiWeb
+            cert_pem: PEM-encoded certificate
+            key_pem: PEM-encoded private key
+        """
+        return self._request(
+            "POST",
+            "/cmdb/system/certificate.local",
+            data={
+                "name": name,
+                "certificate": cert_pem,
+                "private-key": key_pem,
+            },
+        )
+
+    def get_local_certificate(self, name: str) -> dict:
+        """Get local certificate details."""
+        return self._request("GET", f"/cmdb/system/certificate.local?mkey={name}")
+
+    def delete_local_certificate(self, name: str) -> dict:
+        """Delete a local certificate."""
+        return self._request("DELETE", f"/cmdb/system/certificate.local?mkey={name}")
+
+    def create_sni_policy(self, name: str) -> dict:
+        """Create an SNI policy for multi-certificate support."""
+        return self._request(
+            "POST",
+            "/cmdb/server-policy/sni",
+            data={"name": name},
+        )
+
+    def get_sni_policy(self, name: str) -> dict:
+        """Get SNI policy details."""
+        return self._request("GET", f"/cmdb/server-policy/sni?mkey={name}")
+
+    def delete_sni_policy(self, name: str) -> dict:
+        """Delete an SNI policy."""
+        return self._request("DELETE", f"/cmdb/server-policy/sni?mkey={name}")
+
+    def add_sni_member(
+        self,
+        sni_policy_name: str,
+        domain: str,
+        certificate: str,
+    ) -> dict:
+        """
+        Add an SNI member (domain-to-certificate mapping) to an SNI policy.
+
+        Args:
+            sni_policy_name: Name of the SNI policy
+            domain: Domain/hostname pattern (e.g., "xperts.40docs.com")
+            certificate: Name of the local certificate to use
+        """
+        return self._request(
+            "POST",
+            f"/cmdb/server-policy/sni/sni-certificate-configuration?mkey={sni_policy_name}",
+            data={
+                "domain": domain,
+                "certificate-type": "local",
+                "local-certificate": certificate,
+            },
+        )
+
+    def delete_sni_member(self, sni_policy_name: str, member_id: str) -> dict:
+        """Delete an SNI member from a policy."""
+        return self._request(
+            "DELETE",
+            f"/cmdb/server-policy/sni/sni-certificate-configuration?mkey={sni_policy_name}&sub_mkey={member_id}",
+        )
+
+    def update_policy_sni(self, policy_name: str, sni_policy: str) -> dict:
+        """
+        Update a server policy to use SNI for certificate selection.
+
+        Args:
+            policy_name: Name of the server policy
+            sni_policy: Name of the SNI policy
+        """
+        return self._request(
+            "PUT",
+            f"/cmdb/server-policy/policy?mkey={policy_name}",
+            data={
+                "ssl": "enable",
+                "sni": "enable",
+                "sni-certificate": sni_policy,
+            },
+        )
+
+    # =========================================================================
     # Session Management
     # =========================================================================
 

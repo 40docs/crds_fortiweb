@@ -79,6 +79,40 @@ def get_fortiweb_config_defaults(namespace: str) -> dict:
     return defaults
 
 
+def get_tls_certificate(namespace: str, secret_name: str, secret_namespace: Optional[str] = None) -> dict:
+    """
+    Read TLS certificate and key from a Kubernetes TLS secret.
+
+    Args:
+        namespace: Default namespace if secret_namespace not specified
+        secret_name: Name of the TLS secret
+        secret_namespace: Namespace of the TLS secret (optional)
+
+    Returns:
+        dict with 'cert' and 'key' as PEM strings, or None values if not found
+    """
+    api = kubernetes.client.CoreV1Api()
+    ns = secret_namespace or namespace
+
+    try:
+        secret = api.read_namespaced_secret(secret_name, ns)
+
+        if secret.type != "kubernetes.io/tls":
+            logger.warning(f"Secret {ns}/{secret_name} is not a TLS secret (type: {secret.type})")
+            return {"cert": None, "key": None}
+
+        cert_pem = base64.b64decode(secret.data.get("tls.crt", "")).decode()
+        key_pem = base64.b64decode(secret.data.get("tls.key", "")).decode()
+
+        return {"cert": cert_pem, "key": key_pem}
+
+    except kubernetes.client.ApiException as e:
+        if e.status == 404:
+            logger.info(f"TLS secret {ns}/{secret_name} not found (may not be issued yet)")
+            return {"cert": None, "key": None}
+        raise kopf.TemporaryError(f"Failed to read TLS secret {ns}/{secret_name}: {e}")
+
+
 def resolve_service_endpoints(
     service_name: str,
     service_namespace: str,
@@ -428,7 +462,89 @@ async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, meta,
             logger.info(f"Wired {routing_name} to policy: {wire_result['status_code']}")
 
         # =====================================================================
-        # Step 5: Create DNSEndpoint for external-dns (if enabled)
+        # Step 5: Configure TLS/HTTPS with per-host certificates
+        # =====================================================================
+        tls_routes = [r for r in routes if r.get("tls", {}).get("enabled")]
+
+        if tls_routes:
+            logger.info(f"Configuring TLS for {len(tls_routes)} routes")
+            sni_policy_name = f"{name}-sni"
+            uploaded_certs = []
+
+            # Create SNI policy for multi-certificate support
+            sni_result = client.create_sni_policy(sni_policy_name)
+            if sni_result["status_code"] not in [200, 201, 500]:  # 500 might mean exists
+                existing = client.get_sni_policy(sni_policy_name)
+                if existing["status_code"] != 200:
+                    logger.warning(f"Failed to create SNI policy: {sni_result}")
+
+            # Process each TLS-enabled route
+            for route in tls_routes:
+                host = route.get("host")
+                tls_config = route.get("tls", {})
+                secret_name = tls_config.get("secretName")
+                secret_ns = tls_config.get("secretNamespace", namespace)
+
+                if not secret_name:
+                    logger.warning(f"TLS enabled for {host} but no secretName specified")
+                    continue
+
+                # Read TLS certificate from Kubernetes secret
+                tls_data = get_tls_certificate(namespace, secret_name, secret_ns)
+
+                if not tls_data["cert"] or not tls_data["key"]:
+                    logger.warning(f"TLS secret {secret_ns}/{secret_name} not ready for {host}")
+                    continue
+
+                # Generate certificate name for FortiWeb (sanitize hostname)
+                cert_name = host.replace(".", "-").replace("*", "wildcard")
+
+                # Upload certificate to FortiWeb
+                upload_result = client.upload_local_certificate(
+                    name=cert_name,
+                    cert_pem=tls_data["cert"],
+                    key_pem=tls_data["key"],
+                )
+
+                if upload_result["status_code"] in [200, 201]:
+                    logger.info(f"Uploaded certificate {cert_name} for {host}")
+                    uploaded_certs.append(cert_name)
+                elif upload_result["status_code"] == 500:
+                    # Might already exist, check and continue
+                    existing = client.get_local_certificate(cert_name)
+                    if existing["status_code"] == 200:
+                        logger.info(f"Certificate {cert_name} already exists")
+                        uploaded_certs.append(cert_name)
+                    else:
+                        logger.warning(f"Failed to upload certificate for {host}: {upload_result}")
+                        continue
+                else:
+                    logger.warning(f"Failed to upload certificate for {host}: {upload_result}")
+                    continue
+
+                # Add SNI member to map hostname to certificate
+                sni_member_result = client.add_sni_member(
+                    sni_policy_name=sni_policy_name,
+                    domain=host,
+                    certificate=cert_name,
+                )
+                if sni_member_result["status_code"] in [200, 201, 500]:
+                    logger.info(f"Added SNI mapping: {host} -> {cert_name}")
+                else:
+                    logger.warning(f"Failed to add SNI member for {host}: {sni_member_result}")
+
+            # Update policy to use SNI for certificate selection
+            if uploaded_certs:
+                sni_update = client.update_policy_sni(policy_name, sni_policy_name)
+                if sni_update["status_code"] in [200, 201]:
+                    logger.info(f"Enabled SNI on policy {policy_name}")
+                    patch.status["sniPolicy"] = sni_policy_name
+                    patch.status["certificates"] = uploaded_certs
+                else:
+                    logger.warning(f"Failed to enable SNI on policy: {sni_update}")
+
+        # =====================================================================
+        # Step 6: Create DNSEndpoint for external-dns (if enabled)
         # =====================================================================
         dns_spec = spec.get("dns", {})
         dns_enabled = dns_spec.get("enabled", False)
