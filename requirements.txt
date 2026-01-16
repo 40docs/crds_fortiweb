@@ -1,0 +1,4 @@
+kopf>=1.36.0
+kubernetes>=28.1.0
+httpx>=0.25.0
+pydantic>=2.5.0

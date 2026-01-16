@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fortiweb-controller
+  namespace: fortiweb-controller
+  labels:
+    app.kubernetes.io/name: fortiweb-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fortiweb-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fortiweb-controller
+    spec:
+      serviceAccountName: fortiweb-controller
+      containers:
+        - name: controller
+          image: fortiweb-controller:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - kopf
+            - run
+            - /app/main.py
+            - --verbose
+            - --liveness=http://0.0.0.0:8080/healthz
+          ports:
+            - name: health
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          env:
+            - name: LOG_LEVEL
+              value: "INFO"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000

@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fortiweb-controller
+  namespace: fortiweb-controller
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fortiweb-controller
+rules:
+  # Watch FortiWebIngress CRDs
+  - apiGroups: ["fortiweb.40docs.com"]
+    resources: ["fortiwebingresses"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["fortiweb.40docs.com"]
+    resources: ["fortiwebingresses/status"]
+    verbs: ["get", "patch", "update"]
+
+  # Read secrets for FortiWeb credentials (any namespace)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+
+  # Read services and endpoints for backend resolution (any namespace)
+  - apiGroups: [""]
+    resources: ["services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+
+  # kopf needs events and leases for leader election
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fortiweb-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fortiweb-controller
+subjects:
+  - kind: ServiceAccount
+    name: fortiweb-controller
+    namespace: fortiweb-controller

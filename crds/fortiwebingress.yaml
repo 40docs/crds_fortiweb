@@ -1,0 +1,174 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: fortiwebingresses.fortiweb.40docs.com
+spec:
+  group: fortiweb.40docs.com
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - fortiweb
+                - virtualServer
+                - routes
+              properties:
+                fortiweb:
+                  type: object
+                  description: FortiWeb appliance connection settings
+                  required:
+                    - address
+                    - credentialsSecret
+                  properties:
+                    address:
+                      type: string
+                      description: "FortiWeb management address (ip:port)"
+                    credentialsSecret:
+                      type: string
+                      description: "Name of secret containing username/password"
+                    credentialsSecretNamespace:
+                      type: string
+                      description: "Namespace of credentials secret (default: same as CR)"
+                virtualServer:
+                  type: object
+                  description: Virtual server configuration
+                  required:
+                    - ip
+                    - interface
+                  properties:
+                    name:
+                      type: string
+                      description: "Virtual server name (default: CR name)"
+                    ip:
+                      type: string
+                      description: "Virtual server IP address"
+                    interface:
+                      type: string
+                      description: "Network interface (e.g., port1)"
+                    useInterfaceIP:
+                      type: boolean
+                      description: "Use interface IP instead of dedicated VIP"
+                      default: true
+                policy:
+                  type: object
+                  description: Server policy settings
+                  properties:
+                    name:
+                      type: string
+                      description: "Policy name (default: CR name)"
+                    webProtectionProfile:
+                      type: string
+                      description: "Web protection profile name"
+                      default: "Inline Standard Protection"
+                    httpService:
+                      type: string
+                      default: "HTTP"
+                    httpsService:
+                      type: string
+                      default: "HTTPS"
+                    synCookie:
+                      type: string
+                      enum: ["enable", "disable"]
+                      default: "enable"
+                    httpToHttps:
+                      type: string
+                      enum: ["enable", "disable"]
+                      default: "disable"
+                routes:
+                  type: array
+                  description: Content routing rules
+                  items:
+                    type: object
+                    required:
+                      - host
+                      - backend
+                    properties:
+                      host:
+                        type: string
+                        description: "Hostname to match"
+                      path:
+                        type: string
+                        description: "Path prefix to match"
+                        default: "/"
+                      backend:
+                        type: object
+                        required:
+                          - serviceName
+                          - port
+                        properties:
+                          serviceName:
+                            type: string
+                            description: "Backend service name"
+                          serviceNamespace:
+                            type: string
+                            description: "Backend service namespace (default: same as CR)"
+                          port:
+                            type: integer
+                            description: "Backend service port"
+                      tls:
+                        type: object
+                        properties:
+                          enabled:
+                            type: boolean
+                            default: false
+                          secretName:
+                            type: string
+                            description: "TLS secret name"
+                          secretNamespace:
+                            type: string
+                            description: "TLS secret namespace"
+            status:
+              type: object
+              properties:
+                state:
+                  type: string
+                  enum: ["Pending", "Syncing", "Ready", "Error"]
+                message:
+                  type: string
+                lastSyncTime:
+                  type: string
+                  format: date-time
+                virtualServer:
+                  type: string
+                  description: "Created virtual server name"
+                policy:
+                  type: string
+                  description: "Created policy name"
+                serverPools:
+                  type: array
+                  items:
+                    type: string
+                contentRoutingRules:
+                  type: array
+                  items:
+                    type: string
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: State
+          type: string
+          jsonPath: .status.state
+        - name: VServer
+          type: string
+          jsonPath: .status.virtualServer
+        - name: Routes
+          type: integer
+          jsonPath: .spec.routes
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+  scope: Namespaced
+  names:
+    plural: fortiwebingresses
+    singular: fortiwebingress
+    kind: FortiWebIngress
+    shortNames:
+      - fwi

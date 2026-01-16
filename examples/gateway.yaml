@@ -1,0 +1,39 @@
+apiVersion: fortiweb.40docs.com/v1
+kind: FortiWebIngress
+metadata:
+  name: gateway
+  namespace: fortiweb-system
+spec:
+  fortiweb:
+    address: "10.0.10.100:8443"
+    credentialsSecret: fortiweb-credentials
+    # credentialsSecretNamespace: fortiweb-system  # defaults to CR namespace
+
+  virtualServer:
+    name: gateway
+    ip: "10.0.1.100"
+    interface: port1
+    useInterfaceIP: true
+
+  policy:
+    name: gateway-policy
+    webProtectionProfile: "Inline Standard Protection"
+    httpService: "HTTP"
+    httpsService: "HTTPS"
+    synCookie: "enable"
+    httpToHttps: "disable"
+
+  routes:
+    - host: shop.40docs.com
+      path: /
+      backend:
+        serviceName: frontend
+        serviceNamespace: online-boutique
+        port: 80
+
+    - host: xperts.40docs.com
+      path: /
+      backend:
+        serviceName: xperts
+        serviceNamespace: xperts
+        port: 8080
