@@ -82,6 +82,17 @@ spec:
                       type: string
                       enum: ["enable", "disable"]
                       default: "disable"
+                dns:
+                  type: object
+                  description: DNS record configuration for external-dns
+                  properties:
+                    enabled:
+                      type: boolean
+                      description: "Enable automatic DNS record creation via external-dns"
+                      default: false
+                    target:
+                      type: string
+                      description: "Target IP for DNS A records (FortiWeb public/EIP address)"
                 routes:
                   type: array
                   description: Content routing rules
@@ -150,6 +161,14 @@ spec:
                   type: array
                   items:
                     type: string
+                dnsEndpoint:
+                  type: string
+                  description: "Created DNSEndpoint resource name"
+                dnsHostnames:
+                  type: array
+                  items:
+                    type: string
+                  description: "Hostnames with DNS records"
       subresources:
         status: {}
       additionalPrinterColumns:

@@ -112,9 +112,97 @@ def generate_resource_name(cr_name: str, suffix: str) -> str:
     return f"{base}-{suffix}"
 
 
+def create_dns_endpoint(name: str, namespace: str, hostnames: list[str], target_ip: str, owner_ref: dict) -> None:
+    """
+    Create or update a DNSEndpoint resource for external-dns.
+
+    Args:
+        name: Name for the DNSEndpoint resource
+        namespace: Namespace to create the DNSEndpoint in
+        hostnames: List of hostnames to create A records for
+        target_ip: IP address to point the A records to
+        owner_ref: Owner reference for garbage collection
+    """
+    api = kubernetes.client.CustomObjectsApi()
+
+    endpoints = [
+        {
+            "dnsName": hostname,
+            "recordType": "A",
+            "targets": [target_ip],
+            "recordTTL": 300,
+        }
+        for hostname in hostnames
+    ]
+
+    dns_endpoint = {
+        "apiVersion": "externaldns.k8s.io/v1alpha1",
+        "kind": "DNSEndpoint",
+        "metadata": {
+            "name": f"{name}-dns",
+            "namespace": namespace,
+            "ownerReferences": [owner_ref],
+        },
+        "spec": {
+            "endpoints": endpoints,
+        },
+    }
+
+    try:
+        # Try to get existing
+        api.get_namespaced_custom_object(
+            group="externaldns.k8s.io",
+            version="v1alpha1",
+            namespace=namespace,
+            plural="dnsendpoints",
+            name=f"{name}-dns",
+        )
+        # Update if exists
+        api.patch_namespaced_custom_object(
+            group="externaldns.k8s.io",
+            version="v1alpha1",
+            namespace=namespace,
+            plural="dnsendpoints",
+            name=f"{name}-dns",
+            body=dns_endpoint,
+        )
+        logger.info(f"Updated DNSEndpoint {name}-dns with {len(hostnames)} hostnames")
+    except kubernetes.client.ApiException as e:
+        if e.status == 404:
+            # Create if doesn't exist
+            api.create_namespaced_custom_object(
+                group="externaldns.k8s.io",
+                version="v1alpha1",
+                namespace=namespace,
+                plural="dnsendpoints",
+                body=dns_endpoint,
+            )
+            logger.info(f"Created DNSEndpoint {name}-dns with {len(hostnames)} hostnames")
+        else:
+            raise
+
+
+def delete_dns_endpoint(name: str, namespace: str) -> None:
+    """Delete DNSEndpoint resource if it exists."""
+    api = kubernetes.client.CustomObjectsApi()
+
+    try:
+        api.delete_namespaced_custom_object(
+            group="externaldns.k8s.io",
+            version="v1alpha1",
+            namespace=namespace,
+            plural="dnsendpoints",
+            name=f"{name}-dns",
+        )
+        logger.info(f"Deleted DNSEndpoint {name}-dns")
+    except kubernetes.client.ApiException as e:
+        if e.status != 404:
+            logger.warning(f"Failed to delete DNSEndpoint {name}-dns: {e}")
+
+
 @kopf.on.create("fortiweb.40docs.com", "v1", "fortiwebingresses")
 @kopf.on.update("fortiweb.40docs.com", "v1", "fortiwebingresses")
-async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, **kwargs):
+async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, meta, **kwargs):
     """
     Reconcile FortiWebIngress resource.
 
@@ -123,6 +211,7 @@ async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, **kwa
     2. Server Pools (one per route)
     3. Content Routing Policies (one per route)
     4. Server Policy with all content routing rules wired in
+    5. DNSEndpoint for external-dns (if dns.enabled)
     """
     logger.info(f"Reconciling FortiWebIngress {namespace}/{name}")
 
@@ -282,6 +371,42 @@ async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, **kwa
             logger.info(f"Wired {routing_name} to policy: {wire_result['status_code']}")
 
         # =====================================================================
+        # Step 5: Create DNSEndpoint for external-dns (if enabled)
+        # =====================================================================
+        dns_spec = spec.get("dns", {})
+        dns_enabled = dns_spec.get("enabled", False)
+        dns_target = dns_spec.get("target", "")
+
+        if dns_enabled and dns_target:
+            # Collect all hostnames from routes
+            hostnames = [route.get("host") for route in routes if route.get("host")]
+
+            if hostnames:
+                # Create owner reference for garbage collection
+                owner_ref = {
+                    "apiVersion": "fortiweb.40docs.com/v1",
+                    "kind": "FortiWebIngress",
+                    "name": name,
+                    "uid": meta.get("uid"),
+                    "controller": True,
+                    "blockOwnerDeletion": True,
+                }
+
+                create_dns_endpoint(
+                    name=name,
+                    namespace=namespace,
+                    hostnames=hostnames,
+                    target_ip=dns_target,
+                    owner_ref=owner_ref,
+                )
+                patch.status["dnsEndpoint"] = f"{name}-dns"
+                patch.status["dnsHostnames"] = hostnames
+            else:
+                logger.warning("DNS enabled but no hostnames found in routes")
+        elif dns_enabled and not dns_target:
+            logger.warning("DNS enabled but no target IP specified in dns.target")
+
+        # =====================================================================
         # Update status
         # =====================================================================
         patch.status["state"] = "Ready"
@@ -308,12 +433,16 @@ async def delete_fortiweb_ingress(spec, name, namespace, status, **kwargs):
     Clean up FortiWeb resources when CR is deleted.
 
     Deletion order (reverse of creation):
-    1. Server Policy
-    2. Content Routing Policies
-    3. Server Pools
-    4. Virtual Server
+    1. DNSEndpoint (deleted via owner reference, but explicit delete for safety)
+    2. Server Policy
+    3. Content Routing Policies
+    4. Server Pools
+    5. Virtual Server
     """
     logger.info(f"Deleting FortiWebIngress {namespace}/{name}")
+
+    # Delete DNSEndpoint first (also handled by owner reference garbage collection)
+    delete_dns_endpoint(name, namespace)
 
     # Get FortiWeb connection config
     fortiweb_spec = spec.get("fortiweb", {})
