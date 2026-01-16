@@ -432,11 +432,11 @@ class FortiWebClient:
         """
         return self._request(
             "POST",
-            f"/cmdb/system/certificate.sni/sni-members?mkey={sni_policy_name}",
+            f"/cmdb/system/certificate.sni/members?mkey={sni_policy_name}",
             data={
+                "domain-type": "plain",
                 "domain": domain,
-                "certificate-type": "local",
-                "local-certificate": certificate,
+                "local-cert": certificate,
             },
         )
 
@@ -444,7 +444,7 @@ class FortiWebClient:
         """Delete an SNI member from a policy."""
         return self._request(
             "DELETE",
-            f"/cmdb/system/certificate.sni/sni-members?mkey={sni_policy_name}&sub_mkey={member_id}",
+            f"/cmdb/system/certificate.sni/members?mkey={sni_policy_name}&sub_mkey={member_id}",
         )
 
     def update_policy_sni(self, policy_name: str, sni_policy: str) -> dict:
