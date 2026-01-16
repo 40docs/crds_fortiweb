@@ -31,6 +31,54 @@ def get_credentials(namespace: str, secret_name: str, secret_namespace: Optional
         raise kopf.PermanentError(f"Failed to read credentials secret {ns}/{secret_name}: {e}")
 
 
+def get_fortiweb_config_defaults(namespace: str) -> dict:
+    """
+    Read FortiWeb network config from the fortiweb-config secret.
+
+    This secret is synced from AWS Secrets Manager via External Secrets
+    and contains the FortiWeb IPs that would otherwise need to be hardcoded.
+
+    Returns dict with keys:
+        - address: FortiWeb API address (ip:port)
+        - public_ip: FortiWeb public EIP (for DNS target)
+        - port1_ip: FortiWeb port1 private IP (for virtual server)
+    """
+    api = kubernetes.client.CoreV1Api()
+    defaults = {
+        "address": None,
+        "public_ip": None,
+        "port1_ip": None,
+    }
+
+    try:
+        secret = api.read_namespaced_secret("fortiweb-config", namespace)
+        data = secret.data or {}
+
+        # Build address from IP and port
+        fw_ip = base64.b64decode(data.get("FORTIWEB_IP", "")).decode() if data.get("FORTIWEB_IP") else ""
+        fw_port = base64.b64decode(data.get("FORTIWEB_PORT", "")).decode() if data.get("FORTIWEB_PORT") else "8443"
+        if fw_ip:
+            defaults["address"] = f"{fw_ip}:{fw_port}"
+
+        # Public IP for DNS
+        if data.get("FORTIWEB_PUBLIC_IP"):
+            defaults["public_ip"] = base64.b64decode(data["FORTIWEB_PUBLIC_IP"]).decode()
+
+        # Port1 IP for virtual server
+        if data.get("FORTIWEB_PORT1_IP"):
+            defaults["port1_ip"] = base64.b64decode(data["FORTIWEB_PORT1_IP"]).decode()
+
+        logger.info(f"Loaded FortiWeb config defaults: address={defaults['address']}, public_ip={defaults['public_ip']}")
+
+    except kubernetes.client.ApiException as e:
+        if e.status == 404:
+            logger.info("No fortiweb-config secret found, using CR values only")
+        else:
+            logger.warning(f"Failed to read fortiweb-config secret: {e}")
+
+    return defaults
+
+
 def resolve_service_endpoints(
     service_name: str,
     service_namespace: str,
@@ -219,6 +267,9 @@ async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, meta,
     patch.status["state"] = "Syncing"
     patch.status["message"] = "Starting reconciliation"
 
+    # Load defaults from fortiweb-config secret (synced from AWS Secrets Manager)
+    config_defaults = get_fortiweb_config_defaults(namespace)
+
     # Get FortiWeb connection config
     fortiweb_spec = spec.get("fortiweb", {})
     credentials = get_credentials(
@@ -227,8 +278,13 @@ async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, meta,
         fortiweb_spec.get("credentialsSecretNamespace"),
     )
 
+    # Use CR value if specified, otherwise fall back to secret defaults
+    fortiweb_address = fortiweb_spec.get("address") or config_defaults.get("address")
+    if not fortiweb_address:
+        raise kopf.PermanentError("FortiWeb address not specified in CR or fortiweb-config secret")
+
     config = FortiWebConfig(
-        address=fortiweb_spec.get("address"),
+        address=fortiweb_address,
         username=credentials["username"],
         password=credentials["password"],
     )
@@ -260,12 +316,13 @@ async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, meta,
             if existing["status_code"] != 200:
                 raise kopf.TemporaryError(f"Failed to create virtual server: {result}")
 
-        # Add VIP to virtual server
+        # Add VIP to virtual server (use default from secret if not specified)
+        vip_address = vserver_spec.get("ip") or config_defaults.get("port1_ip") or ""
         vip_result = client.add_vip_to_vserver(
             vserver_name=vserver_name,
             interface=vserver_spec.get("interface", "port1"),
             use_interface_ip=vserver_spec.get("useInterfaceIP", True),
-            vip=vserver_spec.get("ip", ""),
+            vip=vip_address,
         )
         logger.info(f"VIP configuration result: {vip_result}")
 
@@ -375,7 +432,8 @@ async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, meta,
         # =====================================================================
         dns_spec = spec.get("dns", {})
         dns_enabled = dns_spec.get("enabled", False)
-        dns_target = dns_spec.get("target", "")
+        # Use CR value if specified, otherwise fall back to public IP from secret
+        dns_target = dns_spec.get("target") or config_defaults.get("public_ip") or ""
 
         if dns_enabled and dns_target:
             # Collect all hostnames from routes
@@ -401,10 +459,11 @@ async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, meta,
                 )
                 patch.status["dnsEndpoint"] = f"{name}-dns"
                 patch.status["dnsHostnames"] = hostnames
+                logger.info(f"Created DNSEndpoint with target {dns_target}")
             else:
                 logger.warning("DNS enabled but no hostnames found in routes")
         elif dns_enabled and not dns_target:
-            logger.warning("DNS enabled but no target IP specified in dns.target")
+            logger.warning("DNS enabled but no target IP specified in CR or fortiweb-config secret")
 
         # =====================================================================
         # Update status
@@ -444,6 +503,9 @@ async def delete_fortiweb_ingress(spec, name, namespace, status, **kwargs):
     # Delete DNSEndpoint first (also handled by owner reference garbage collection)
     delete_dns_endpoint(name, namespace)
 
+    # Load defaults from fortiweb-config secret
+    config_defaults = get_fortiweb_config_defaults(namespace)
+
     # Get FortiWeb connection config
     fortiweb_spec = spec.get("fortiweb", {})
     try:
@@ -456,8 +518,14 @@ async def delete_fortiweb_ingress(spec, name, namespace, status, **kwargs):
         logger.warning(f"Could not get credentials for cleanup: {e}")
         return
 
+    # Use CR value if specified, otherwise fall back to secret defaults
+    fortiweb_address = fortiweb_spec.get("address") or config_defaults.get("address")
+    if not fortiweb_address:
+        logger.warning("FortiWeb address not available, skipping FortiWeb cleanup")
+        return
+
     config = FortiWebConfig(
-        address=fortiweb_spec.get("address"),
+        address=fortiweb_address,
         username=credentials["username"],
         password=credentials["password"],
     )
