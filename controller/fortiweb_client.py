@@ -356,20 +356,41 @@ class FortiWebClient:
         """
         Upload a local certificate to FortiWeb.
 
+        Uses the import_certificate endpoint with multipart form data.
+        The certificate name is derived from the filename (without extension).
+
         Args:
-            name: Certificate name in FortiWeb
-            cert_pem: PEM-encoded certificate
+            name: Certificate name in FortiWeb (used as filename prefix)
+            cert_pem: PEM-encoded certificate (can include chain)
             key_pem: PEM-encoded private key
         """
-        return self._request(
-            "POST",
-            "/cmdb/system/certificate.local",
-            data={
-                "name": name,
-                "certificate": cert_pem,
-                "private-key": key_pem,
-            },
-        )
+        try:
+            response = self.client.post(
+                "/system/certificate.local.import_certificate",
+                headers={"Accept": "application/json, text/plain, */*"},
+                files={
+                    "certificateFile": (f"{name}.crt", cert_pem.encode(), "application/x-pem-file"),
+                    "keyFile": (f"{name}.key", key_pem.encode(), "application/x-pem-file"),
+                },
+                data={
+                    "type": "certificate",
+                    "hsm": "undefined",
+                    "password": "undefined",
+                },
+            )
+            result = response.json() if response.text else {}
+            if response.status_code >= 400:
+                logger.error(
+                    f"FortiWeb API error: POST /system/certificate.local.import_certificate -> "
+                    f"{result.get('errcode')}: {result.get('message')}"
+                )
+            return {
+                "status_code": response.status_code,
+                "results": result,
+            }
+        except Exception as e:
+            logger.exception("FortiWeb certificate upload failed")
+            return {"status_code": 500, "results": {"error": str(e)}}
 
     def get_local_certificate(self, name: str) -> dict:
         """Get local certificate details."""
@@ -383,17 +404,17 @@ class FortiWebClient:
         """Create an SNI policy for multi-certificate support."""
         return self._request(
             "POST",
-            "/cmdb/server-policy/sni",
+            "/cmdb/system/certificate.sni",
             data={"name": name},
         )
 
     def get_sni_policy(self, name: str) -> dict:
         """Get SNI policy details."""
-        return self._request("GET", f"/cmdb/server-policy/sni?mkey={name}")
+        return self._request("GET", f"/cmdb/system/certificate.sni?mkey={name}")
 
     def delete_sni_policy(self, name: str) -> dict:
         """Delete an SNI policy."""
-        return self._request("DELETE", f"/cmdb/server-policy/sni?mkey={name}")
+        return self._request("DELETE", f"/cmdb/system/certificate.sni?mkey={name}")
 
     def add_sni_member(
         self,
@@ -411,7 +432,7 @@ class FortiWebClient:
         """
         return self._request(
             "POST",
-            f"/cmdb/server-policy/sni/sni-certificate-configuration?mkey={sni_policy_name}",
+            f"/cmdb/system/certificate.sni/sni-members?mkey={sni_policy_name}",
             data={
                 "domain": domain,
                 "certificate-type": "local",
@@ -423,7 +444,7 @@ class FortiWebClient:
         """Delete an SNI member from a policy."""
         return self._request(
             "DELETE",
-            f"/cmdb/server-policy/sni/sni-certificate-configuration?mkey={sni_policy_name}&sub_mkey={member_id}",
+            f"/cmdb/system/certificate.sni/sni-members?mkey={sni_policy_name}&sub_mkey={member_id}",
         )
 
     def update_policy_sni(self, policy_name: str, sni_policy: str) -> dict:
