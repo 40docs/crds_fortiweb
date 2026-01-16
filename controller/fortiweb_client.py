@@ -131,8 +131,10 @@ class FortiWebClient:
             "interface": interface,
             "status": "enable",
             "use-interface-ip": "enable" if use_interface_ip else "disable",
-            "vip": vip,
         }
+        # Only include vip field when not using interface IP
+        if not use_interface_ip and vip:
+            data["vip"] = vip
         return self._request(
             "POST",
             f"/cmdb/server-policy/vserver/vip-list?mkey={vserver_name}",
