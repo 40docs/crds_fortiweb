@@ -60,22 +60,40 @@ def resolve_service_endpoints(
             # Can't resolve external DNS names to IPs
             raise kopf.TemporaryError(f"Cannot resolve ExternalName {external_name} to endpoints")
 
+        # Find the target port from service spec (service port -> target port mapping)
+        target_port = port
+        port_name = None
+        for svc_port in service.spec.ports or []:
+            if svc_port.port == port:
+                # Get the target port (could be int or string name)
+                if isinstance(svc_port.target_port, int):
+                    target_port = svc_port.target_port
+                elif svc_port.target_port:
+                    # It's a named port, we'll resolve from endpoints
+                    port_name = str(svc_port.target_port)
+                else:
+                    target_port = svc_port.port
+                break
+
+        logger.info(f"Service port {port} maps to target port {target_port} (name: {port_name})")
+
         # For ClusterIP/NodePort services, get endpoints
         endpoints = api.read_namespaced_endpoints(service_name, service_namespace)
 
         result = []
         for subset in endpoints.subsets or []:
-            # Find the matching port
-            target_port = port
-            for ep_port in subset.ports or []:
-                if ep_port.port == port or ep_port.name == str(port):
-                    target_port = ep_port.port
-                    break
+            # If we have a named port, resolve it from endpoints
+            resolved_port = target_port
+            if port_name:
+                for ep_port in subset.ports or []:
+                    if ep_port.name == port_name:
+                        resolved_port = ep_port.port
+                        break
 
             for address in subset.addresses or []:
                 result.append({
                     "ip": address.ip,
-                    "port": target_port,
+                    "port": resolved_port,
                 })
 
         if not result:
