@@ -365,10 +365,14 @@ class FortiWebClient:
             key_pem: PEM-encoded private key
         """
         try:
-            # Must unset Content-Type so httpx can set multipart boundary
-            response = self.client.post(
-                "/system/certificate.local.import_certificate",
-                headers={"Accept": "application/json, text/plain, */*", "Content-Type": None},
+            # Use httpx directly (not self.client) to avoid default Content-Type header
+            # The client has Content-Type: application/json which breaks multipart uploads
+            response = httpx.post(
+                f"{self.config.base_url}/system/certificate.local.import_certificate",
+                headers={
+                    "Authorization": self.config.auth_token,
+                    "Accept": "application/json, text/plain, */*",
+                },
                 files={
                     "certificateFile": (f"{name}.crt", cert_pem.encode(), "application/x-pem-file"),
                     "keyFile": (f"{name}.key", key_pem.encode(), "application/x-pem-file"),
@@ -378,6 +382,8 @@ class FortiWebClient:
                     "hsm": "undefined",
                     "password": "undefined",
                 },
+                verify=self.config.verify_ssl,
+                timeout=30.0,
             )
             result = response.json() if response.text else {}
             if response.status_code >= 400:
