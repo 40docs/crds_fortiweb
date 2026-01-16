@@ -318,7 +318,7 @@ async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, meta,
                 escaped_host = host.replace('.', r'\.')
                 match_result = client.add_match_condition(
                     routing_policy_name=routing_name,
-                    match_type="host-header",
+                    match_type="http-host",
                     match_value=f"^{escaped_host}$",
                 )
                 logger.info(f"Added host match for {host}: {match_result['status_code']}")

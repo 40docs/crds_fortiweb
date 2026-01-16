@@ -262,16 +262,16 @@ class FortiWebClient:
     def add_match_condition(
         self,
         routing_policy_name: str,
-        match_type: str = "host-header",
+        match_type: str = "http-host",
         match_value: str = "",
     ) -> dict:
         """Add a match condition to content routing policy."""
         return self._request(
             "POST",
-            f"/server/httpcontentrouting.matchlist?mkey={routing_policy_name}",
+            f"/cmdb/server-policy/http-content-routing-policy/content-routing-match-list?mkey={routing_policy_name}",
             data={
                 "match-object": match_type,
-                "match-condition": "match-regex",
+                "match-condition": "match-reg",
                 "match-expression": match_value,
             },
         )
