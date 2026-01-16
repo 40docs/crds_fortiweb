@@ -18,8 +18,8 @@ spec:
       serviceAccountName: fortiweb-controller
       containers:
         - name: controller
-          image: fortiweb-controller:latest
-          imagePullPolicy: IfNotPresent
+          image: ghcr.io/40docs/crds_fortiweb:latest
+          imagePullPolicy: Always
           command:
             - kopf
             - run
