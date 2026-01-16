@@ -25,12 +25,11 @@ spec:
                   type: object
                   description: FortiWeb appliance connection settings
                   required:
-                    - address
                     - credentialsSecret
                   properties:
                     address:
                       type: string
-                      description: "FortiWeb management address (ip:port)"
+                      description: "FortiWeb management address (ip:port). If not specified, read from fortiweb-config secret."
                     credentialsSecret:
                       type: string
                       description: "Name of secret containing username/password"
@@ -41,7 +40,6 @@ spec:
                   type: object
                   description: Virtual server configuration
                   required:
-                    - ip
                     - interface
                   properties:
                     name:
@@ -49,7 +47,7 @@ spec:
                       description: "Virtual server name (default: CR name)"
                     ip:
                       type: string
-                      description: "Virtual server IP address"
+                      description: "Virtual server IP address. If not specified, read from fortiweb-config secret."
                     interface:
                       type: string
                       description: "Network interface (e.g., port1)"
