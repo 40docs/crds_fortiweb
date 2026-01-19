@@ -694,6 +694,78 @@ async def delete_fortiweb_ingress(spec, name, namespace, status, **kwargs):
         client.close()
 
 
+@kopf.on.event("", "v1", "secrets")
+async def on_secret_change(event, name, namespace, body, **kwargs):
+    """
+    Watch TLS secrets and trigger FortiWebIngress reconciliation when they change.
+
+    This handles the race condition where FortiWebIngress is created before
+    cert-manager has issued the TLS certificates.
+    """
+    # Only care about TLS secrets
+    if body.get("type") != "kubernetes.io/tls":
+        return
+
+    # Only care about create/update events (not delete)
+    event_type = event.get("type")
+    if event_type not in ("ADDED", "MODIFIED"):
+        return
+
+    logger.info(f"TLS secret {namespace}/{name} changed, checking for FortiWebIngress references")
+
+    # Find FortiWebIngress resources that reference this secret
+    api = kubernetes.client.CustomObjectsApi()
+    try:
+        # List all FortiWebIngress resources
+        fwi_list = api.list_cluster_custom_object(
+            group="fortiwebingress.io",
+            version="v1",
+            plural="fortiwebingresses",
+        )
+
+        for fwi in fwi_list.get("items", []):
+            fwi_name = fwi["metadata"]["name"]
+            fwi_namespace = fwi["metadata"]["namespace"]
+            routes = fwi.get("spec", {}).get("routes", [])
+
+            # Check if any route references this TLS secret
+            for route in routes:
+                tls_config = route.get("tls", {})
+                if not tls_config.get("enabled"):
+                    continue
+
+                secret_name = tls_config.get("secretName")
+                # Secret namespace defaults to FortiWebIngress namespace
+                secret_ns = tls_config.get("secretNamespace", fwi_namespace)
+
+                if secret_name == name and secret_ns == namespace:
+                    logger.info(
+                        f"TLS secret {namespace}/{name} is referenced by "
+                        f"FortiWebIngress {fwi_namespace}/{fwi_name}, triggering reconciliation"
+                    )
+
+                    # Touch the FortiWebIngress to trigger reconciliation
+                    import time
+                    api.patch_namespaced_custom_object(
+                        group="fortiwebingress.io",
+                        version="v1",
+                        plural="fortiwebingresses",
+                        namespace=fwi_namespace,
+                        name=fwi_name,
+                        body={
+                            "metadata": {
+                                "annotations": {
+                                    "fortiwebingress.io/tls-secret-updated": str(int(time.time()))
+                                }
+                            }
+                        },
+                    )
+                    break  # Only need to trigger once per FortiWebIngress
+
+    except kubernetes.client.ApiException as e:
+        logger.warning(f"Failed to list/patch FortiWebIngress resources: {e}")
+
+
 @kopf.on.startup()
 async def startup(**kwargs):
     """Initialize Kubernetes client on startup."""
