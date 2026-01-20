@@ -390,10 +390,34 @@ async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, meta,
                 if existing["status_code"] != 200:
                     logger.warning(f"Failed to create server pool {pool_name}: {pool_result}")
 
-            # Add servers to pool
+            # Reconcile pool members (add new, remove stale)
+            current_members_resp = client.get_server_pool_members(pool_name)
+            actual_members = {}  # {ip:port -> member_id}
+            if current_members_resp.get("results") and isinstance(current_members_resp["results"], list):
+                for member in current_members_resp["results"]:
+                    key = f"{member.get('ip')}:{member.get('port')}"
+                    # Member ID is typically the IP address in FortiWeb
+                    actual_members[key] = member.get("id") or member.get("_id") or member.get("ip")
+
+            # Build desired state from K8s endpoints
+            desired_members = {f"{ep['ip']}:{ep['port']}" for ep in endpoints}
+
+            # Remove stale members (in actual but not in desired)
+            for member_key, member_id in actual_members.items():
+                if member_key not in desired_members:
+                    logger.info(f"Removing stale member {member_key} from pool {pool_name}")
+                    delete_result = client.delete_server_from_pool(pool_name, member_id)
+                    if delete_result["status_code"] not in [200, 204]:
+                        logger.warning(f"Failed to remove stale member {member_key}: {delete_result}")
+
+            # Add new members (in desired but not in actual)
             for ep in endpoints:
-                server_result = client.add_server_to_pool(pool_name, ep["ip"], ep["port"])
-                logger.info(f"Added server {ep['ip']}:{ep['port']} to pool {pool_name}: {server_result['status_code']}")
+                member_key = f"{ep['ip']}:{ep['port']}"
+                if member_key not in actual_members:
+                    logger.info(f"Adding member {member_key} to pool {pool_name}")
+                    server_result = client.add_server_to_pool(pool_name, ep["ip"], ep["port"])
+                    if server_result["status_code"] not in [200, 201]:
+                        logger.warning(f"Failed to add member {member_key}: {server_result}")
 
             created_pools.append(pool_name)
 

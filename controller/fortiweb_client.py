@@ -215,16 +215,19 @@ class FortiWebClient:
             },
         )
 
-    def clear_server_pool(self, pool_name: str) -> dict:
-        """Remove all servers from a pool."""
-        # Get current servers
-        pool = self.get_server_pool(pool_name)
-        if pool["status_code"] != 200:
-            return pool
+    def get_server_pool_members(self, pool_name: str) -> dict:
+        """Get all members in a server pool."""
+        return self._request(
+            "GET",
+            f"/cmdb/server-policy/server-pool/pserver-list?mkey={pool_name}",
+        )
 
-        # Delete each server (would need to iterate over pserver-list)
-        # For now, easier to delete and recreate the pool
-        return {"status_code": 200, "results": {}}
+    def delete_server_from_pool(self, pool_name: str, member_id: str) -> dict:
+        """Delete a specific server from a pool."""
+        return self._request(
+            "DELETE",
+            f"/cmdb/server-policy/server-pool/pserver-list?mkey={pool_name}&sub_mkey={member_id}",
+        )
 
     # =========================================================================
     # Content Routing Management
