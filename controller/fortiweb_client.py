@@ -193,6 +193,57 @@ class FortiWebClient:
         """Delete a server pool."""
         return self._request("DELETE", f"/cmdb/server-policy/server-pool?mkey={name}")
 
+    # =========================================================================
+    # Health Check Management
+    # =========================================================================
+
+    def create_health_check(
+        self,
+        name: str,
+        url_path: str = "/",
+        method: str = "head",
+        response_code: str = "200",
+        interval: int = 10,
+        timeout: int = 5,
+        retry_times: int = 3,
+    ) -> dict:
+        """
+        Create a custom HTTP health check.
+
+        Args:
+            name: Health check name
+            url_path: URL path to check (e.g., "/healthz")
+            method: HTTP method ("head" or "get")
+            response_code: Expected response code (e.g., "200")
+            interval: Check interval in seconds
+            timeout: Request timeout in seconds
+            retry_times: Number of retries before marking unhealthy
+        """
+        return self._request(
+            "POST",
+            "/cmdb/server-policy/health",
+            data={
+                "name": name,
+                "health-list": [{
+                    "type": "http",
+                    "url-path": url_path,
+                    "method": method,
+                    "response-code": response_code,
+                    "interval": interval,
+                    "timeout": timeout,
+                    "retry-times": retry_times,
+                }],
+            },
+        )
+
+    def get_health_check(self, name: str) -> dict:
+        """Get health check by name."""
+        return self._request("GET", f"/cmdb/server-policy/health?mkey={name}")
+
+    def delete_health_check(self, name: str) -> dict:
+        """Delete a health check."""
+        return self._request("DELETE", f"/cmdb/server-policy/health?mkey={name}")
+
     def add_server_to_pool(
         self,
         pool_name: str,

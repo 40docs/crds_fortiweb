@@ -383,8 +383,33 @@ async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, meta,
             endpoints = resolve_service_endpoints(service_name, service_namespace, service_port)
             logger.info(f"Resolved {len(endpoints)} endpoints for {service_name}")
 
-            # Create server pool
-            pool_result = client.create_server_pool(pool_name)
+            # Create custom health check if specified in route config
+            health_check_name = "HLTHCK_HTTP"  # Default FortiWeb health check
+            health_check_config = route.get("healthCheck")
+            if health_check_config:
+                hc_name = generate_resource_name(name, f"hc-{route_suffix}")
+                hc_result = client.create_health_check(
+                    name=hc_name,
+                    url_path=health_check_config.get("path", "/"),
+                    method=health_check_config.get("method", "head"),
+                    response_code=str(health_check_config.get("responseCode", 200)),
+                )
+                if hc_result["status_code"] in [200, 201]:
+                    health_check_name = hc_name
+                    logger.info(f"Created custom health check {hc_name} with path {health_check_config.get('path')}")
+                elif hc_result["status_code"] == 500:
+                    # Might already exist
+                    existing = client.get_health_check(hc_name)
+                    if existing["status_code"] == 200:
+                        health_check_name = hc_name
+                        logger.info(f"Health check {hc_name} already exists")
+                    else:
+                        logger.warning(f"Failed to create health check {hc_name}: {hc_result}")
+                else:
+                    logger.warning(f"Failed to create health check {hc_name}: {hc_result}")
+
+            # Create server pool with health check
+            pool_result = client.create_server_pool(pool_name, health_check=health_check_name)
             if pool_result["status_code"] not in [200, 201]:
                 existing = client.get_server_pool(pool_name)
                 if existing["status_code"] != 200:
@@ -704,6 +729,14 @@ async def delete_fortiweb_ingress(spec, name, namespace, status, **kwargs):
         for pool_name in server_pools:
             logger.info(f"Deleting server pool: {pool_name}")
             client.delete_server_pool(pool_name)
+
+        # Delete custom health checks (named like <name>-hc-r0, <name>-hc-r1, etc.)
+        routes = spec.get("routes", [])
+        for idx, route in enumerate(routes):
+            if route.get("healthCheck"):
+                hc_name = generate_resource_name(name, f"hc-r{idx}")
+                logger.info(f"Deleting health check: {hc_name}")
+                client.delete_health_check(hc_name)
 
         # Delete virtual server
         logger.info(f"Deleting virtual server: {vserver_name}")
