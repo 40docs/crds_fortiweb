@@ -134,6 +134,23 @@ spec:
                           secretNamespace:
                             type: string
                             description: "TLS secret namespace"
+                      healthCheck:
+                        type: object
+                        description: "Custom health check configuration for this route's server pool"
+                        properties:
+                          path:
+                            type: string
+                            description: "URL path for health check (e.g., /healthz)"
+                            default: "/"
+                          method:
+                            type: string
+                            description: "HTTP method for health check"
+                            enum: ["head", "get"]
+                            default: "head"
+                          responseCode:
+                            type: integer
+                            description: "Expected HTTP response code"
+                            default: 200
             status:
               type: object
               properties:
