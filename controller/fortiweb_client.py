@@ -202,7 +202,7 @@ class FortiWebClient:
         name: str,
         url_path: str = "/",
         method: str = "head",
-        response_code: str = "200",
+        response_code: int = 200,
         interval: int = 10,
         timeout: int = 5,
         retry_times: int = 3,
@@ -213,8 +213,8 @@ class FortiWebClient:
         Args:
             name: Health check name
             url_path: URL path to check (e.g., "/healthz")
-            method: HTTP method ("head" or "get")
-            response_code: Expected response code (e.g., "200")
+            method: HTTP method ("head", "get", or "post")
+            response_code: Expected response code (e.g., 200)
             interval: Check interval in seconds
             timeout: Request timeout in seconds
             retry_times: Number of retries before marking unhealthy
@@ -228,6 +228,7 @@ class FortiWebClient:
                     "type": "http",
                     "url-path": url_path,
                     "method": method,
+                    "match-type": "response-code",
                     "response-code": response_code,
                     "interval": interval,
                     "timeout": timeout,

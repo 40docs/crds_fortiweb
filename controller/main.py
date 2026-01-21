@@ -392,7 +392,7 @@ async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, meta,
                     name=hc_name,
                     url_path=health_check_config.get("path", "/"),
                     method=health_check_config.get("method", "head"),
-                    response_code=str(health_check_config.get("responseCode", 200)),
+                    response_code=int(health_check_config.get("responseCode", 200)),
                 )
                 if hc_result["status_code"] in [200, 201]:
                     health_check_name = hc_name
