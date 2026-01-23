@@ -823,6 +823,73 @@ async def on_secret_change(event, name, namespace, body, **kwargs):
         logger.warning(f"Failed to list/patch FortiWebIngress resources: {e}")
 
 
+@kopf.on.event("", "v1", "endpoints")
+async def on_endpoints_change(event, name, namespace, body, **kwargs):
+    """
+    Watch Endpoints and trigger FortiWebIngress reconciliation when
+    backend service endpoints change (pod IP additions/removals).
+
+    This ensures FortiWeb server pools stay in sync when pods roll
+    (e.g., new image deployments, scaling events, node migrations).
+    """
+    # Only care about meaningful changes (not deletions of services we don't track)
+    event_type = event.get("type")
+    if event_type not in ("ADDED", "MODIFIED"):
+        return
+
+    # Extract current ready addresses for comparison
+    subsets = body.get("subsets") or []
+    current_ips = set()
+    for subset in subsets:
+        for address in subset.get("addresses") or []:
+            current_ips.add(address.get("ip"))
+
+    # Find FortiWebIngress resources that reference this service
+    api = kubernetes.client.CustomObjectsApi()
+    try:
+        fwi_list = api.list_cluster_custom_object(
+            group="fortiwebingress.io",
+            version="v1",
+            plural="fortiwebingresses",
+        )
+
+        for fwi in fwi_list.get("items", []):
+            fwi_name = fwi["metadata"]["name"]
+            fwi_namespace = fwi["metadata"]["namespace"]
+            routes = fwi.get("spec", {}).get("routes", [])
+
+            for route in routes:
+                backend = route.get("backend", {})
+                service_name = backend.get("serviceName")
+                service_namespace = backend.get("serviceNamespace", fwi_namespace)
+
+                if service_name == name and service_namespace == namespace:
+                    logger.info(
+                        f"Endpoints {namespace}/{name} changed (IPs: {current_ips}), "
+                        f"triggering reconciliation for FortiWebIngress {fwi_namespace}/{fwi_name}"
+                    )
+
+                    import time
+                    api.patch_namespaced_custom_object(
+                        group="fortiwebingress.io",
+                        version="v1",
+                        plural="fortiwebingresses",
+                        namespace=fwi_namespace,
+                        name=fwi_name,
+                        body={
+                            "metadata": {
+                                "annotations": {
+                                    "fortiwebingress.io/endpoints-updated": str(int(time.time()))
+                                }
+                            }
+                        },
+                    )
+                    break  # Only need to trigger once per FortiWebIngress
+
+    except kubernetes.client.ApiException as e:
+        logger.warning(f"Failed to list/patch FortiWebIngress for endpoints change: {e}")
+
+
 @kopf.on.startup()
 async def startup(**kwargs):
     """Initialize Kubernetes client on startup."""
