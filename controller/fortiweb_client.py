@@ -398,6 +398,36 @@ class FortiWebClient:
             f"/cmdb/server-policy/policy/http-content-routing-list?mkey={policy_name}",
         )
 
+    def update_content_routing_in_policy(
+        self,
+        policy_name: str,
+        content_routing_id: str,
+        content_routing_name: str,
+        is_default: bool = False,
+    ) -> dict:
+        """Update an existing content routing rule in a policy."""
+        return self._request(
+            "PUT",
+            f"/cmdb/server-policy/policy/http-content-routing-list?mkey={policy_name}&sub_mkey={content_routing_id}",
+            data={
+                "content-routing-policy-name": content_routing_name,
+                "is-default": "yes" if is_default else "no",
+                "profile-inherit": "enable",
+                "status": "enable",
+            },
+        )
+
+    def delete_content_routing_from_policy(
+        self,
+        policy_name: str,
+        content_routing_id: str,
+    ) -> dict:
+        """Delete a content routing rule from a policy."""
+        return self._request(
+            "DELETE",
+            f"/cmdb/server-policy/policy/http-content-routing-list?mkey={policy_name}&sub_mkey={content_routing_id}",
+        )
+
     # =========================================================================
     # Certificate Management
     # =========================================================================

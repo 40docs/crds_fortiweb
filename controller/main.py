@@ -499,17 +499,39 @@ async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, meta,
         # =====================================================================
         logger.info(f"Wiring {len(created_routing_rules)} content routing rules to policy")
 
+        # Get existing content routing rules to check for updates
+        existing_cr_list = client.get_policy_content_routing_list(policy_name)
+        existing_cr_map = {}
+        if existing_cr_list.get("status_code") == 200:
+            for item in existing_cr_list.get("results", []):
+                cr_name = item.get("content-routing-policy-name", "")
+                cr_id = item.get("id", "")
+                if cr_name and cr_id:
+                    existing_cr_map[cr_name] = cr_id
+
         for idx, routing_name in enumerate(created_routing_rules):
             # Route with path "/" is the catch-all default (evaluated last)
             route_path = routes[idx].get("path", "/")
             is_default = (route_path == "/")
 
-            wire_result = client.add_content_routing_to_policy(
-                policy_name=policy_name,
-                content_routing_name=routing_name,
-                is_default=is_default,
-            )
-            logger.info(f"Wired {routing_name} to policy: {wire_result['status_code']}")
+            if routing_name in existing_cr_map:
+                # Update existing rule to ensure is_default is set correctly
+                cr_id = existing_cr_map[routing_name]
+                wire_result = client.update_content_routing_in_policy(
+                    policy_name=policy_name,
+                    content_routing_id=cr_id,
+                    content_routing_name=routing_name,
+                    is_default=is_default,
+                )
+                logger.info(f"Updated {routing_name} (id={cr_id}, is_default={is_default}): {wire_result['status_code']}")
+            else:
+                # Add new rule
+                wire_result = client.add_content_routing_to_policy(
+                    policy_name=policy_name,
+                    content_routing_name=routing_name,
+                    is_default=is_default,
+                )
+                logger.info(f"Added {routing_name} (is_default={is_default}): {wire_result['status_code']}")
 
         # =====================================================================
         # Step 5: Configure TLS/HTTPS with per-host certificates
