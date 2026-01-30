@@ -500,8 +500,9 @@ async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, meta,
         logger.info(f"Wiring {len(created_routing_rules)} content routing rules to policy")
 
         for idx, routing_name in enumerate(created_routing_rules):
-            # First rule is default if no specific host match
-            is_default = (idx == 0 and not routes[0].get("host"))
+            # Route with path "/" is the catch-all default (evaluated last)
+            route_path = routes[idx].get("path", "/")
+            is_default = (route_path == "/")
 
             wire_result = client.add_content_routing_to_policy(
                 policy_name=policy_name,
