@@ -467,7 +467,7 @@ async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, meta,
             if path and path != "/":
                 path_result = client.add_match_condition(
                     routing_policy_name=routing_name,
-                    match_type="request-url",
+                    match_type="http-request",
                     match_value=f"^{path}",
                 )
                 logger.info(f"Added path match for {path}: {path_result['status_code']}")
