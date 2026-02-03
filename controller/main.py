@@ -510,9 +510,8 @@ async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, meta,
                     existing_cr_map[cr_name] = cr_id
 
         for idx, routing_name in enumerate(created_routing_rules):
-            # Route with path "/" is the catch-all default (evaluated last)
-            route_path = routes[idx].get("path", "/")
-            is_default = (route_path == "/")
+            # Use explicit default setting from route spec (defaults to False)
+            is_default = routes[idx].get("default", False)
 
             if routing_name in existing_cr_map:
                 # Update existing rule to ensure is_default is set correctly

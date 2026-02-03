@@ -107,6 +107,10 @@ spec:
                         type: string
                         description: "Path prefix to match"
                         default: "/"
+                      default:
+                        type: boolean
+                        description: "Mark this route as the default fallback (only one route should be default)"
+                        default: false
                       backend:
                         type: object
                         required:
