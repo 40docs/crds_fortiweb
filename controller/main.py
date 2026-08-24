@@ -194,6 +194,61 @@ def generate_resource_name(cr_name: str, suffix: str) -> str:
     return f"{base}-{suffix}"
 
 
+def reconcile_match_conditions(client, routing_name: str, host: str, path: str) -> None:
+    """
+    Idempotently set a content-routing rule's match conditions to exactly the
+    desired host (+ path) matches.
+
+    Previously the controller called add_match_condition() unconditionally on
+    every reconcile, which appends a duplicate entry each time until FortiWeb's
+    per-rule match-list cap (256) is hit and further writes fail with
+    "-4: maximum number of entries reached" — corrupting routing for the whole
+    shared gateway. This makes the write convergent instead: keep exactly one
+    of each desired condition, delete duplicates/unwanted, and add any missing.
+
+    Desired conditions preserved throughout are never deleted, so healing an
+    already-polluted rule causes no gap in matching (no routing blip).
+    """
+    desired = []
+    if host:
+        escaped_host = host.replace('.', r'\.')
+        desired.append(("http-host", f"^{escaped_host}$"))
+    if path and path != "/":
+        desired.append(("http-request", f"^{path}"))
+    desired_set = set(desired)
+
+    resp = client.get_match_conditions(routing_name)
+    current = resp.get("results", []) if isinstance(resp, dict) else []
+
+    kept = set()
+    stale = []  # (id, key) entries to remove: duplicates or no-longer-desired
+    for entry in current:
+        key = (entry.get("match-object"), entry.get("match-expression"))
+        entry_id = entry.get("id") or entry.get("_id")
+        if key in desired_set and key not in kept:
+            kept.add(key)  # keep exactly one instance of each desired condition
+        else:
+            stale.append((entry_id, key))
+
+    if not stale and kept == desired_set:
+        return  # already exactly correct — no-op
+
+    for entry_id, _key in stale:
+        if entry_id is not None:
+            client.delete_match_condition(routing_name, entry_id)
+    for match_type, match_value in desired:
+        if (match_type, match_value) not in kept:
+            client.add_match_condition(
+                routing_policy_name=routing_name,
+                match_type=match_type,
+                match_value=match_value,
+            )
+    logger.info(
+        f"Reconciled match conditions for {routing_name}: "
+        f"removed {len(stale)} stale, desired {len(desired)}"
+    )
+
+
 def create_dns_endpoint(name: str, namespace: str, hostnames: list[str], target_ip: str, owner_ref: dict) -> None:
     """
     Create or update a DNSEndpoint resource for external-dns.
@@ -453,24 +508,10 @@ async def reconcile_fortiweb_ingress(spec, name, namespace, status, patch, meta,
                 if existing["status_code"] != 200:
                     logger.warning(f"Failed to create content routing {routing_name}: {cr_result}")
 
-            # Add match condition for host header
-            if host:
-                escaped_host = host.replace('.', r'\.')
-                match_result = client.add_match_condition(
-                    routing_policy_name=routing_name,
-                    match_type="http-host",
-                    match_value=f"^{escaped_host}$",
-                )
-                logger.info(f"Added host match for {host}: {match_result['status_code']}")
-
-            # Add path match if specified
-            if path and path != "/":
-                path_result = client.add_match_condition(
-                    routing_policy_name=routing_name,
-                    match_type="http-request",
-                    match_value=f"^{path}",
-                )
-                logger.info(f"Added path match for {path}: {path_result['status_code']}")
+            # Idempotently set the host (+ path) match conditions. Prevents the
+            # unbounded-append that fills FortiWeb's 256-entry match-list, and
+            # heals any rule already polluted by the previous behavior.
+            reconcile_match_conditions(client, routing_name, host, path)
 
             created_routing_rules.append(routing_name)
 

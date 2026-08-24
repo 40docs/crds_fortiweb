@@ -331,6 +331,21 @@ class FortiWebClient:
             },
         )
 
+    def get_match_conditions(self, routing_policy_name: str) -> dict:
+        """List the match conditions currently on a content routing policy."""
+        return self._request(
+            "GET",
+            f"/cmdb/server-policy/http-content-routing-policy/content-routing-match-list?mkey={routing_policy_name}",
+        )
+
+    def delete_match_condition(self, routing_policy_name: str, member_id) -> dict:
+        """Delete a single match condition (by sub-mkey/id) from a content routing policy."""
+        return self._request(
+            "DELETE",
+            f"/cmdb/server-policy/http-content-routing-policy/content-routing-match-list"
+            f"?mkey={routing_policy_name}&sub_mkey={member_id}",
+        )
+
     # =========================================================================
     # Server Policy Management
     # =========================================================================
